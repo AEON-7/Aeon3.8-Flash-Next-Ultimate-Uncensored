@@ -41,7 +41,7 @@ Then choose:
 |---|---|---|---|---|
 | 1 DGX Spark, one user or a few | **Seat 1** (section 2) | Strata 0.2.18 + DFlash2 | 131K, images | 4 |
 | 1 DGX Spark, many sessions | **Seat 2** (section 6) | AEON vLLM Ultimate + DFlash2, n-gram table on disk | 131K, images | 4 (low latency) or 32 (swarm) |
-| 2 DGX Sparks joined by a RoCE link, general use | **Seat 3** (section 3) | AEON vLLM Ultimate, tensor-parallel | 131K, images | 16 |
+| 2 DGX Sparks joined by a RoCE link, general use | **Seat 3** (section 3) | AEON vLLM Ultimate + DFlash2, tensor-parallel | 131K, images | 32 |
 | 2 DGX Sparks, and the person wants more than 131K of context or long reasoning | **Seat 4** (section 4) | AEON vLLM Ultimate, tensor-parallel | 256K, images | 4 |
 | 4 DGX Sparks as two linked pairs | **Seat 5** (section 5) | two Seat 3 serves and a balancer | 131K, images | 32 |
 | 3 DGX Sparks | Seat 3 on a linked pair, and Seat 1 on the third if wanted | | | |
@@ -49,7 +49,7 @@ Then choose:
 
 Ask the person only what you cannot determine: Seat 3 or Seat 4 on two Sparks, and whether the port should be reachable from other machines. Everything else has a default below.
 
-Disk needed: 98 GiB for Seat 1 (the repo root without `vllm/`). 108 GB for Seats 3 to 5 (`vllm/`), on storage both nodes can read. The repo holds both builds of the same weights. Download only the one the seat uses.
+Disk needed: 98 GiB for Seat 1 (the repo root without `vllm/`). 108 GB for Seats 3 to 5 (`vllm/`), on storage both nodes can read, plus the DFlash2 drafter for the Seat 3 default. The repo holds both builds of the same weights. Download only the one the seat uses.
 
 ## 2. Seat 1: one Spark, Strata
 
@@ -136,16 +136,17 @@ Expected, and what to do if you do not see it:
 | Decode, one user, default sampling | about 55 tok/s (45 with thinking on) | Around 30 tok/s means the drafter did not load. Check the `strata/` pack path in `user_args`. |
 | `MemAvailable` under load | 16 to 19 GiB | Much lower: something else is using memory. Rule 8. |
 
-## 3. Seat 3: two Sparks, AEON vLLM Ultimate, 131K, 16 sequences
+## 3. Seat 3: two Sparks, AEON vLLM Ultimate, 131K, 32 sequences, DFlash2
 
-Target: 2 DGX Sparks joined by a RoCE link. One user at 58 to 65 tok/s. Sixteen at once sharing 330 to 359 tok/s.
+Target: 2 DGX Sparks joined by a RoCE link. Default: DFlash2 with 3 draft tokens and 32 sequences. One user at about 60 tok/s at the recommended sampling (65 greedy). Sixteen at once sharing about 248 tok/s; thirty-two sharing about 243 tok/s thinking off, or 312 with thinking on. The built-in MTP head at 16 sequences is the alternate (58 to 65 greedy; 330 to 359 at 16 in the 23 November tables).
 
 Image: `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2`, digest `sha256:71c2b82b3b0c97ddca9ef35b279fb745ee0abe29b762a24c8c0771cf930f11ab`. This seat runs on the public image as it is.
 
-**3.1 Download** the `vllm/` build on one node and share it read-only over NFS, or download it on both. The path must be the same on both nodes.
+**3.1 Download** the `vllm/` build on one node and share it read-only over NFS, or download it on both. The path must be the same on both nodes. Also fetch the DFlash2 drafter.
 
 ```sh
 hf download AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS --include 'vllm/*' --local-dir /models/aeon-xs
+huggingface-cli download incoai/Qwen3.8-Flash-Next-DFlash2 --local-dir /models/dflash2
 ```
 
 **3.2 Fill in five values per node.** These are the only site-specific parts.
@@ -163,6 +164,7 @@ hf download AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS --include 'vl
 ```sh
 IMG=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2
 MODEL=/models/aeon-xs/vllm
+DRAFT=/models/dflash2
 HEAD=<head-node-ip>   # head node address on the fast link
 MYIP=<this-node-ip>   # this node's address on the fast link
 RANK=0                # 1 on the second node
@@ -175,16 +177,16 @@ docker run -d --name aeon-xs --network host --ipc host --shm-size 16g --gpus all
   -e NCCL_SOCKET_IFNAME==$IF -e GLOO_SOCKET_IFNAME=$IF -e TP_SOCKET_IFNAME=$IF \
   -e NCCL_IB_HCA==$HCA -e NCCL_IB_GID_INDEX=3 -e NCCL_IB_DISABLE=0 \
   -e NCCL_IB_ROCE_VERSION_NUM=2 -e NCCL_IB_ADDR_FAMILY=AF_INET \
-  -e VLLM_HOST_IP=$MYIP -v $MODEL:/model:ro \
+  -e VLLM_HOST_IP=$MYIP -v $MODEL:/model:ro -v $DRAFT:/draft:ro \
   --entrypoint vllm $IMG serve /model --trust-remote-code --served-model-name aeon-xs \
   --tensor-parallel-size 2 --nnodes 2 --node-rank $RANK \
   --master-addr $HEAD --master-port 29531 --distributed-executor-backend mp \
   --limit-mm-per-prompt '{"image":2,"video":0}' --host 0.0.0.0 --port 8000 \
   --reasoning-parser qwen3 --tool-call-parser qwen3_coder --enable-auto-tool-choice \
   --enable-prefix-caching \
-  --max-model-len 131072 --max-num-seqs 16 --gpu-memory-utilization 0.80 \
+  --max-model-len 131072 --max-num-seqs 32 --gpu-memory-utilization 0.80 \
   --max-num-batched-tokens 16384 \
-  --speculative-config '{"method":"mtp","num_speculative_tokens":3}' \
+  --speculative-config '{"method":"dflash","model":"/draft","num_speculative_tokens":3}' \
   --override-generation-config '{"temperature":0.6,"top_p":0.95,"top_k":20,"presence_penalty":0.5,"repetition_penalty":1.0}' \
   $HEADLESS
 ```
@@ -193,15 +195,9 @@ The doubled `=` in `NCCL_SOCKET_IFNAME==$IF` and `NCCL_IB_HCA==$HCA` is correct.
 
 **3.4 Wait and test.** Loading takes several minutes. Do not restart the container while `docker logs aeon-xs` is still advancing. When the head node answers on `/health`, send the Seat 1 test request to `http://<head>:8000/v1/chat/completions`. The model name is the same, `aeon-xs`.
 
-Variant, DFlash2 in place of the MTP head: faster for one user (65 tok/s) and for short answers, slower behind very long prompts. Download the drafter, mount it, change one flag:
+Variant, the built-in MTP head in place of DFlash2: omit the `/draft` mount and use `--max-num-seqs 16` with `--speculative-config '{"method":"mtp","num_speculative_tokens":3}'`. MTP needs no extra download and holds its speed better behind very long prompts.
 
-```sh
-huggingface-cli download incoai/Qwen3.8-Flash-Next-DFlash2 --local-dir /models/dflash2
-# add:     -v /models/dflash2:/draft:ro
-# replace: --speculative-config '{"method":"dflash","model":"/draft","num_speculative_tokens":3}'
-```
-
-Do not change: `--tensor-parallel-size 2`, `--max-model-len 131072`, `--max-num-seqs 16`, `--gpu-memory-utilization 0.80`, `--max-num-batched-tokens 16384`, `--enable-prefix-caching`, the draft-token count, the parsers, or the sampling override.
+Do not change: `--tensor-parallel-size 2`, `--max-model-len 131072`, `--max-num-seqs 32` (16 on the MTP alternate), `--gpu-memory-utilization 0.80`, `--max-num-batched-tokens 16384`, `--enable-prefix-caching`, the draft-token count, the parsers, or the sampling override.
 
 You may change: `--port`, `--served-model-name` (then use that name in requests), and `--limit-mm-per-prompt` to `--language-model-only` for a text-only server.
 
@@ -209,8 +205,9 @@ You may change: `--port`, `--served-model-name` (then use that name in requests)
 |---|---|---|
 | Engine starts | yes | `QSA ring capacity ... must divide the attention block size`: someone changed the draft-token count. Put it back to 3. |
 | First token on a short prompt | 0.1 to 0.2 s | |
-| Decode, one user, default sampling | about 58 tok/s (47 with thinking on) | About 34 tok/s means no drafter is active. Check `--speculative-config`. |
-| 16 at once, total | 330 to 359 tok/s | |
+| Decode, one user, default sampling | about 60 tok/s (57 with thinking on) | About 35 tok/s means no drafter is active. Check `--speculative-config` and the `/draft` mount. |
+| 16 at once, total | about 248 tok/s thinking off, 235 thinking on | The older MTP-at-16 figures were 330 to 359 greedy. |
+| 32 at once, total | about 243 tok/s thinking off, 312 thinking on | Short sessions. 32 full 131K contexts do not fit. |
 | Nodes cannot find each other | | Check `IF`, `HCA`, `HEAD`, `MYIP`, and that `/dev/infiniband` exists on both nodes. |
 
 ## 4. Seat 4: two Sparks, 256K context, 4 sequences
