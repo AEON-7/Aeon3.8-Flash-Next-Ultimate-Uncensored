@@ -1,6 +1,8 @@
 # Seat 2: AEON vLLM Ultimate on one Spark
 
-[Quick-start index](../README.md) · [Sampling settings](sampling.md) · [AGENTS.md](../AGENTS.md) · [Model card and all measurements](https://huggingface.co/AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS)
+[Quick-start index](../README.md) · [Before you start](before-you-start.md) · [Sampling](sampling.md) · [Use it](use-it.md) · [AGENTS.md](../AGENTS.md) · [Model card and all measurements](https://huggingface.co/AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS)
+
+> First time? Do the three steps in [Before you start](before-you-start.md), then come back here.
 
 > **Hardware** 1 DGX Spark, 128 GB, NVMe · **Download** 108 GB (`vllm/`) plus the DFlash2 drafter · **Context** 131K · **Images** on · **Engine** AEON vLLM Ultimate with the n-gram table on disk
 
@@ -22,7 +24,7 @@ Image: `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-25-v0.33.0-omni-dflash2-ngram-
 
 ```sh
 hf download AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS --include 'vllm/*' --local-dir /models/aeon-xs
-huggingface-cli download incoai/Qwen3.8-Flash-Next-DFlash2 --local-dir /models/dflash2
+hf download incoai/Qwen3.8-Flash-Next-DFlash2 --local-dir /models/dflash2
 ```
 
 **2a. Low latency: 4 sequences, 131K.** These are the flags behind the table. Leave `--gpu-memory-utilization` at 0.74. Raising it to buy KV cache takes memory away from the page cache that holds the n-gram table.
@@ -47,12 +49,22 @@ docker run -d --name aeon-xs --ipc host --shm-size 16g --gpus all \
   --override-generation-config '{"temperature":0.6,"top_p":0.95,"top_k":20,"presence_penalty":0.5,"repetition_penalty":1.0}'
 ```
 
-**2b. More sessions: 32 sequences, 131K.** Same image, same weights, same utilization. Only `--max-num-seqs` changes.
+**2b. Or, for more sessions: 32 sequences, 131K.** Same image, same weights, same utilization. In the block above, change `--max-num-seqs 4` to `--max-num-seqs 32` and run it. Nothing else changes.
 
 ```sh
 # same docker flags as the low-latency recipe, except:
   --max-model-len 131072 --max-num-seqs 32 --gpu-memory-utilization 0.74
 ```
+
+**3. Wait until it is ready, then check it.** The first boot is the slowest, because it writes the n-gram table to `$TABLE`. The first line prints `ready` once the server answers. The second asks it a question.
+
+```sh
+until curl -sf http://127.0.0.1:8000/health >/dev/null; do sleep 10; done; echo ready
+curl -s http://127.0.0.1:8000/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model":"aeon-xs","messages":[{"role":"user","content":"Name three prime numbers."}],"max_tokens":64}'
+```
+
+If `ready` never comes, `docker logs --tail 50 aeon-xs` shows why. To stop the server, run `docker rm -f aeon-xs`.
 
 - **Draft tokens: use 3.** 8 stops the engine at startup. 11 starts, and with the MTP head ran about 30% slower (see [Field notes](https://huggingface.co/AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS#field-notes)).
 - **The KV cache is one shared pool** of about 10 GiB on the 4-sequence serve. That is room for a couple of full 131K contexts or for many short ones, not for many long ones.

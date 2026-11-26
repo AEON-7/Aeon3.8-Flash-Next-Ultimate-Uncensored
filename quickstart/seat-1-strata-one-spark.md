@@ -1,6 +1,8 @@
 # Seat 1: Strata on one Spark
 
-[Quick-start index](../README.md) · [Sampling settings](sampling.md) · [AGENTS.md](../AGENTS.md) · [Model card and all measurements](https://huggingface.co/AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS)
+[Quick-start index](../README.md) · [Before you start](before-you-start.md) · [Sampling](sampling.md) · [Use it](use-it.md) · [AGENTS.md](../AGENTS.md) · [Model card and all measurements](https://huggingface.co/AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS)
+
+> First time? Do the three steps in [Before you start](before-you-start.md), then come back here.
 
 > **Hardware** 1 DGX Spark, 128 GB · **Download** 98 GiB · **Context** 131K · **Images** on · **Engine** Strata 0.2.18 with the DFlash2 drafter
 
@@ -37,7 +39,7 @@ ENGINE=$PWD/strata-engine-0.1.64/strata
 $ENGINE --version    # strata 0.1.64
 ```
 
-**3. Write the config and serve.** This is the launch we benchmarked. The server starts the engine with these flags, adds `--draft dflash2 --draft-fallback none` and its own draft vocabulary, and listens on port 8300.
+**3. Write the config and serve.** This is the launch we benchmarked. The server starts the engine with these flags, adds `--draft dflash2 --draft-fallback none` and its own draft vocabulary, and listens on port 8300. Run it in the same terminal as step 2, from inside `aeon-xs`, and leave that terminal open: the server runs in it.
 
 ```sh
 cat > aeon-xs-dflash2.json <<JSON
@@ -79,6 +81,8 @@ Things worth knowing:
 - **Images.** `--vision` and the `vision` section turn on image input. The server hands each image to `strata-vision`, which encodes it with the bundled `mmproj-Aeon3.8-Flash-Next-BF16.gguf`. Leave both out for a text-only server. Text speed is the same either way.
 - **Tokenizer.** The config points at `serve/tokenizer`, whose chat template has the Hugging Face `{% generation %}` tags removed, because Strata's template engine rejects them.
 - **`--parallel 4`** is the launch behind the table. A single user is just as fast at `--parallel 1`.
+- **Leave `--spec` at 6.** That is the drafter's window. A 25 November sweep of 3, 5, 7, 8, 9 and 11 on this exact recipe, one pass each, found nothing better. With four streams and thinking off, 6 delivered 64 tok/s in total and the others 47 to 55. With thinking on, 7 to 11 tied it at 62 to 64, and 3 and 5 fell to 53 to 55.
+- **To stop the server,** press Ctrl+C in its terminal.
 - **Stay on 0.1.64.** Do not run a plain `strata update`: it installs the newest engine and switches to it. Strata never updates on its own, and the binary above sits outside Strata's component folder, so updates do not touch it. If you also use the Strata Terminal, `strata components use 0.1.64` switches back and `strata components engines` shows which engine is active.
 - **The drafter** in `strata/` is Strata's tuned DFlash2 pack: [incoai/Qwen3.8-Flash-Next-DFlash2](https://huggingface.co/incoai/Qwen3.8-Flash-Next-DFlash2), fine-tuned by the Strata project and packed in its runtime format (SHA-256 `4df2e5ab2b47c064afbe662e16e4f06569877125c2d0e2123a4ac755266c664c`). It is Apache-2.0, with its license and notice beside it. `draft_vocab.bin` is byte-identical to the Terminal's default draft vocabulary.
 - **Provenance of the numbers.** Our tables come from engine 0.1.64 built from the v0.2.18 source tag with Strata's own Spark build script. The release packages above are built from the same tag and, run exactly as shown, gave the same greedy output in our 4-prompt check, with and without DFlash2.

@@ -1,6 +1,8 @@
 # Seat 3: two Sparks, team server
 
-[Quick-start index](../README.md) · [Sampling settings](sampling.md) · [AGENTS.md](../AGENTS.md) · [Model card and all measurements](https://huggingface.co/AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS)
+[Quick-start index](../README.md) · [Before you start](before-you-start.md) · [Sampling](sampling.md) · [Use it](use-it.md) · [AGENTS.md](../AGENTS.md) · [Model card and all measurements](https://huggingface.co/AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS)
+
+> First time? Do the three steps in [Before you start](before-you-start.md), then come back here.
 
 > **Hardware** 2 DGX Sparks linked over RoCE · **Download** 108 GB (`vllm/`) plus the DFlash2 drafter, shared over NFS or fetched on both · **Context** 131K · **Images** on, two per request · **Engine** AEON vLLM Ultimate, tensor-parallel, DFlash2
 
@@ -34,10 +36,19 @@ Image: `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2`. Pin 
 
 ```sh
 hf download AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS --include 'vllm/*' --local-dir /models/aeon-xs
-huggingface-cli download incoai/Qwen3.8-Flash-Next-DFlash2 --local-dir /models/dflash2
+hf download incoai/Qwen3.8-Flash-Next-DFlash2 --local-dir /models/dflash2
 ```
 
-**2. Run on both nodes**, with `RANK=0` on the head node and `RANK=1` on the other. Set the interface and HCA names to match your RoCE link.
+**2. Find four values on each node.** These are the only parts of the command that depend on your site.
+
+| Value | What it is | How to find it |
+|---|---|---|
+| `HEAD` | the head node's IP address on the fast link | pick one node as the head and use its address on the RoCE interface |
+| `MYIP` | this node's IP address on the fast link | `ip -br addr show` on this node |
+| `IF` | the network interface that carries the fast link | the `netdev` column of `rdma link show`. Ours was `enp1s0f0np0`. |
+| `HCA` | the RDMA devices of that port, comma-separated | the link names in `rdma link show` whose `netdev` is that port. Ours were `rocep1s0f0,roceP2p1s0f0`. |
+
+**3. Run on both nodes**, with `RANK=0` on the head node and `RANK=1` on the other, and your four values filled in.
 
 ```sh
 IMG=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2
@@ -72,6 +83,16 @@ docker run -d --name aeon-xs --network host --ipc host --shm-size 16g --gpus all
 - **Images.** `--limit-mm-per-prompt` allows up to two images per request, with video off. Send them as `image_url` parts in the usual OpenAI format. For a text-only server, use `--language-model-only` in its place. The drafter sees only the text of an image prompt, and vLLM says so in its log.
 - **`NCCL_SOCKET_IFNAME==$IF` is not a typo.** NCCL reads a leading `=` as an exact interface match, so the value passed in is `=$IF`.
 - **Draft tokens: use 3** with either drafter.
+
+**4. Wait until it is ready, then check it**, on the head node. Start the head node first and the other node straight after. Loading takes several minutes.
+
+```sh
+until curl -sf http://127.0.0.1:8000/health >/dev/null; do sleep 10; done; echo ready
+curl -s http://127.0.0.1:8000/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model":"aeon-xs","messages":[{"role":"user","content":"Name three prime numbers."}],"max_tokens":64}'
+```
+
+If `ready` never comes, `docker logs --tail 50 aeon-xs` on each node shows why. To stop the server, run `docker rm -f aeon-xs` on both nodes.
 
 **Variant: the built-in MTP head**, for multilingual traffic or when you do not want a separate drafter. Omit the `/draft` mount and use these two lines in place of the matching ones:
 

@@ -1,6 +1,8 @@
 # Seat 5: four Sparks
 
-[Quick-start index](../README.md) · [Sampling settings](sampling.md) · [AGENTS.md](../AGENTS.md) · [Model card and all measurements](https://huggingface.co/AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS)
+[Quick-start index](../README.md) · [Before you start](before-you-start.md) · [Sampling](sampling.md) · [Use it](use-it.md) · [AGENTS.md](../AGENTS.md) · [Model card and all measurements](https://huggingface.co/AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS)
+
+> First time? Do the three steps in [Before you start](before-you-start.md), then come back here.
 
 > **Hardware** 4 DGX Sparks, as two linked pairs · **Engine** AEON vLLM Ultimate, two Seat 3 replicas behind any round-robin HTTP proxy
 
@@ -15,6 +17,8 @@ Run Seat 3 twice, on nodes 1+2 and nodes 3+4, and spread requests across both. T
 upstream aeon_xs { server <replica-a>:8000; server <replica-b>:8000; }
 server { listen 8080; location / { proxy_pass http://aeon_xs; proxy_buffering off; proxy_read_timeout 3600s; } }
 ```
+
+On Ubuntu: `sudo apt-get install -y nginx`, save the block above as `/etc/nginx/conf.d/aeon-xs.conf` with the two head-node addresses filled in, then run `sudo nginx -t && sudo systemctl reload nginx`. Clients then use port 8080 on that machine.
 
 A single AEON vLLM Ultimate job with tensor-parallel size 4 was not measured on this build and is not a published recipe.
 
