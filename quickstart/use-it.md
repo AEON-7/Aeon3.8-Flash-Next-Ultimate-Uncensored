@@ -11,7 +11,7 @@ Every seat speaks the OpenAI chat API. Point any OpenAI-compatible app or librar
 | 3 and 4 | `http://<head-node-ip>:8000/v1` |
 | 5 | `http://<balancer-ip>:8080/v1` |
 
-From Python, after `pip install openai`:
+From Python, with the `openai` package installed. On your own computer that is `pip install openai`. On the Spark itself, use the environment from [Before you start](before-you-start.md): `~/hf-cli/bin/pip install openai`, then run the script with `~/hf-cli/bin/python`.
 
 ```python
 from openai import OpenAI

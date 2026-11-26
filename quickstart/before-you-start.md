@@ -16,8 +16,8 @@ df -h .
 | Seat | Free disk you need |
 |---|---|
 | 1 | about 110 GB |
-| 2 | about 140 GB: the weights, the drafter, and 29 GB for the n-gram table |
-| 3, 4, 5 | about 110 GB, on storage both nodes of a pair can read |
+| 2 | about 180 GB: the weights, the drafter, 29 GB for the n-gram table and 37 GB for the engine image |
+| 3, 4, 5 | about 110 GB on storage both nodes of a pair can read, plus 37 GB on each node for the engine image |
 
 **2. Install the downloader.** `hf` is Hugging Face's command-line tool. The weights are public, so you need no account and no token.
 
@@ -37,7 +37,7 @@ docker ps
 sudo mkdir -p /models && sudo chown $USER /models
 ```
 
-`docker ps` should print a header line, plus one row for each container already running. If it answers "permission denied", run `sudo usermod -aG docker $USER`, log out and back in, and try again.
+`docker ps` should print a header line, plus one row for each container already running. The first `docker run` in a recipe downloads the engine image, 37 GB, before it starts anything, so give it time. If it answers "permission denied", run `sudo usermod -aG docker $USER`, log out and back in, and try again.
 
 Now go to your seat.
 

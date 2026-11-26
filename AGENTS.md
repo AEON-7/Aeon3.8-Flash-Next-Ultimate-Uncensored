@@ -22,6 +22,7 @@ Run each code block as ONE shell call, whole. Every block is complete on its own
 8. Report what you measured, not what this file says to expect.
 9. When the test passes, leave the server running. Stop it only if the person asks, or if rule 5 says so. Section 9 has the stop commands.
 10. If `sudo` asks for a password, stop and ask the person to run that line.
+11. Downloads and image pulls are large and slow. If a shell call times out, run the same block again. It resumes.
 
 ## 1. Identify the hardware
 
@@ -49,9 +50,9 @@ If one Spark and the person did not say: use Seat 1. If two Sparks and the perso
 | Seat | Free disk needed | Download | Port | Listens on |
 |---|---|---|---|---|
 | 1 | 110 GB | repo without `vllm/` | 8300 | 127.0.0.1 |
-| 2 | 140 GB | `vllm/` + drafter, plus 29 GB written at first boot | 8000 | 0.0.0.0 |
-| 3 | 110 GB, readable at the same path on both nodes | `vllm/` + drafter | 8000 | 0.0.0.0 |
-| 4 | 110 GB, readable at the same path on both nodes | `vllm/` | 8000 | 0.0.0.0 |
+| 2 | 180 GB | `vllm/` + drafter (109 GB), the engine image (37 GB), plus 29 GB written at first boot | 8000 | 0.0.0.0 |
+| 3 | 110 GB readable at the same path on both nodes, plus 37 GB on each node | `vllm/` + drafter, and the engine image on each node | 8000 | 0.0.0.0 |
+| 4 | 110 GB readable at the same path on both nodes, plus 37 GB on each node | `vllm/`, and the engine image on each node | 8000 | 0.0.0.0 |
 | 5 | as Seat 3, for each pair | `vllm/` + drafter | 8000 per pair, 8080 on the balancer | 0.0.0.0 |
 
 ## 2. Install the downloader (every seat)
@@ -167,6 +168,15 @@ hf download AEON-7/Aeon3.8-Flash-Next-ULTIMATE-UNCENSORED-NVFP4-XS --include 'vl
 hf download incoai/Qwen3.8-Flash-Next-DFlash2 --local-dir /models/dflash2
 ```
 
+Then pull the engine image (37 GB). It must print `IMAGE-READY`, and the last line must end in the digest above.
+
+```sh
+IMG=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-25-v0.33.0-omni-dflash2-ngram-disk
+setsid nohup docker pull $IMG > ~/aeon-pull.log 2>&1 < /dev/null &
+for i in $(seq 1 240); do docker image inspect $IMG >/dev/null 2>&1 && echo IMAGE-READY && break; sleep 30; done
+docker image inspect --format '{{index .RepoDigests 0}}' $IMG
+```
+
 **4.2 Start.** For up to 4 sessions at the lowest latency, run as written. For more sessions, change `--max-num-seqs 4` to `--max-num-seqs 32` and nothing else: the server then accepts 32 sessions, works on about 12 at a time, and queues the rest.
 
 ```sh
@@ -229,6 +239,15 @@ Then check on each node. Both lines must list files:
 ```sh
 ls /models/aeon-xs/vllm | head -3
 ls /models/dflash2 | head -3
+```
+
+Then pull the engine image (37 GB) on each node. It must print `IMAGE-READY`, and the last line must end in the digest above.
+
+```sh
+IMG=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2
+setsid nohup docker pull $IMG > ~/aeon-pull.log 2>&1 < /dev/null &
+for i in $(seq 1 240); do docker image inspect $IMG >/dev/null 2>&1 && echo IMAGE-READY && break; sleep 30; done
+docker image inspect --format '{{index .RepoDigests 0}}' $IMG
 ```
 
 **5.2 Find four values on each node.**
@@ -304,7 +323,7 @@ Variant, only if the person asks for the built-in MTP head (mostly non-English t
 
 Same image as Seat 3. No drafter download.
 
-**6.1 Download** as in 5.1, but leave out the `incoai/...` line (the drafter), and skip the `/models/dflash2` check.
+**6.1 Download** as in 5.1, but leave out the `incoai/...` line (the drafter), and skip the `/models/dflash2` check. Pull the engine image on each node as in 5.1.
 
 **6.2 Find the four values** as in 5.2.
 
