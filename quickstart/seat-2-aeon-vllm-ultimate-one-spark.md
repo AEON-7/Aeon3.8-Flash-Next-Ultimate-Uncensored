@@ -4,7 +4,7 @@
 
 > **Hardware** 1 DGX Spark, 128 GB, NVMe · **Download** 108 GB (`vllm/`) plus the DFlash2 drafter · **Context** 131K · **Images** on · **Engine** AEON vLLM Ultimate with the n-gram table on disk
 
-> **Status: validated, not yet reproducible from the public image.** The stock image keeps the 28.8 GB n-gram table in pinned host RAM. On a Spark that RAM is the same 121 GiB pool as the weights, so the stock image does not fit on one box. We measured this seat with a file-backed offload: the table lives on NVMe and is mapped into memory, the kernel's page cache keeps the hot part in RAM, and a manifest lets later boots reuse it. Today that offload is a patch mounted onto the image. A tagged image that includes it is coming, and this card will carry the tag when it ships. **Until then, do not run these commands on one Spark. It will not fit.**
+> **Status: validated, and reproducible from the public image.** The stock `2026-11-23-v0.33.0-omni-dflash2` image keeps the 28.8 GB n-gram table in pinned host RAM. On a Spark that RAM is the same 121 GiB pool as the weights, so that image does not fit on one box. This seat uses the public `2026-11-25-v0.33.0-omni-dflash2-ngram-disk` image, which keeps the table on NVMe, maps it into memory, and lets the kernel's page cache hold the hot part. A manifest lets later boots reuse the table. Mount a host directory at `/ple` for those files. Do not bind-mount Python patch files; they are already in the image. **Do not run these commands on the 2026-11-23 image alone. It will not fit.**
 
 | 4-sequence serve, measured 25 November 2026 | one user | four at once (total) |
 |---|---|---|
@@ -16,7 +16,7 @@ Four people get 24 tok/s each, a third more in total than Strata manages on the 
 
 Raise the cap to 32 sequences and the same box admits 32 sessions and runs twelve of them at a time. With twelve generating together it delivered 83 tok/s in total at the recommended sampling, 101 with thinking on and 97 greedy, each session decoding at 8 to 10 tok/s. Sessions past the twelfth wait their turn.
 
-Image: `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2` (digest `sha256:71c2b82b3b0c97ddca9ef35b279fb745ee0abe29b762a24c8c0771cf930f11ab`). This is [AEON vLLM Ultimate](https://github.com/AEON-7/vllm-ultimate-dgx-spark): vLLM 0.33.0 built for the GB10, plus our hook that lets DFlash2 run on Flash-Next.
+Image: `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-25-v0.33.0-omni-dflash2-ngram-disk` (digest `sha256:4749bd067524ce41a4a6d59625f6b6c8531d08a14739bd0d416e935b9fc3a1ad`). This is [AEON vLLM Ultimate](https://github.com/AEON-7/vllm-ultimate-dgx-spark): vLLM 0.33.0 built for the GB10, plus our hook that lets DFlash2 run on Flash-Next, plus file-backed n-gram/PLE disk offload.
 
 **1. Download** the vLLM weights and the DFlash2 drafter:
 
@@ -28,12 +28,13 @@ huggingface-cli download incoai/Qwen3.8-Flash-Next-DFlash2 --local-dir /models/d
 **2a. Low latency: 4 sequences, 131K.** These are the flags behind the table. Leave `--gpu-memory-utilization` at 0.74. Raising it to buy KV cache takes memory away from the page cache that holds the n-gram table.
 
 ```sh
-IMG=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2
+IMG=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-25-v0.33.0-omni-dflash2-ngram-disk
 MODEL=/models/aeon-xs/vllm
 DRAFT=/models/dflash2
+TABLE=/models/aeon-xs-ple   # NVMe dir for the n-gram table; created on first boot, reused later
 
 docker run -d --name aeon-xs --ipc host --shm-size 16g --gpus all \
-  -v $MODEL:/model:ro -v $DRAFT:/draft:ro \
+  -v $MODEL:/model:ro -v $DRAFT:/draft:ro -v $TABLE:/ple \
   --entrypoint vllm $IMG serve /model --trust-remote-code --served-model-name aeon-xs \
   --host 0.0.0.0 --port 8000 \
   --engram-config '{"cpu_offload":true}' \

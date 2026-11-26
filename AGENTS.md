@@ -12,7 +12,7 @@ Every command below was copied from a run we measured between 21 and 25 November
 
 1. **Use only a configuration from this file.** If the hardware matches none of them, stop and tell the person. Do not invent flags, and do not try another engine: SGLang and TensorFold cannot load this checkpoint.
 2. **Keep the pins.** Strata 0.2.18 (engine 0.1.64) and the AEON vLLM Ultimate image by its digest. Never run a plain `strata update`. Strata 0.2.19 garbles this model's output and 0.2.20 is slower.
-3. **Do not attempt Seat 2 (AEON vLLM Ultimate on one Spark).** The public image does not fit on one box. On one Spark, use Seat 1.
+3. **On one Spark, Seat 2 must use the n-gram-disk image.** `2026-11-23-v0.33.0-omni-dflash2` does not fit on one box. Use `2026-11-25-v0.33.0-omni-dflash2-ngram-disk` and mount a host directory at `/ple`. If the person wants the fastest single stream, use Seat 1 instead.
 4. **Draft tokens are 3 on AEON vLLM Ultimate.** 8 stops the engine at startup. 11 starts and is slower. Do not tune this.
 5. **Do not raise `--gpu-memory-utilization`.** A DGX Spark has one memory pool shared by CPU and GPU. The value is 0.80 on two Sparks and 0.74 on one. Higher values stall or kill the box.
 6. **Never pass `--moe-backend`.** `flashinfer_b12x` consumed 34 GiB in 20 seconds and the out-of-memory killer took the whole machine. `flashinfer_cutlass` refuses this checkpoint.
@@ -39,7 +39,8 @@ Then choose:
 
 | What you found | Seat | Engine | Context | Sessions |
 |---|---|---|---|---|
-| 1 DGX Spark | **Seat 1** (section 2) | Strata 0.2.18 + DFlash2 | 131K, images | 4 |
+| 1 DGX Spark, one user or a few | **Seat 1** (section 2) | Strata 0.2.18 + DFlash2 | 131K, images | 4 |
+| 1 DGX Spark, many sessions | **Seat 2** (section 6) | AEON vLLM Ultimate + DFlash2, n-gram table on disk | 131K, images | 4 (low latency) or 32 (swarm) |
 | 2 DGX Sparks joined by a RoCE link, general use | **Seat 3** (section 3) | AEON vLLM Ultimate, tensor-parallel | 131K, images | 16 |
 | 2 DGX Sparks, and the person wants more than 131K of context or long reasoning | **Seat 4** (section 4) | AEON vLLM Ultimate, tensor-parallel | 256K, images | 4 |
 | 4 DGX Sparks as two linked pairs | **Seat 5** (section 5) | two Seat 3 serves and a balancer | 131K, images | 32 |
@@ -243,19 +244,20 @@ server { listen 8080; location / { proxy_pass http://aeon_xs; proxy_buffering of
 
 Do not start one job with `--tensor-parallel-size 4`. That was not measured on this build.
 
-## 6. Seat 2: one Spark, AEON vLLM Ultimate. Blocked.
+## 6. Seat 2: one Spark, AEON vLLM Ultimate
 
-This seat was measured (38.9 tok/s for one user, 97.5 across four) with a patch that keeps the 28.8 GB n-gram table on NVMe. That patch is not in the public image. The public image keeps the table in pinned host memory, which is the same pool as the weights on a Spark, and it does not fit.
+This seat was measured at 38.9 tok/s for one user and 97.5 across four, with the n-gram table on NVMe. Use the public image `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-25-v0.33.0-omni-dflash2-ngram-disk`, digest `sha256:4749bd067524ce41a4a6d59625f6b6c8531d08a14739bd0d416e935b9fc3a1ad`. Mount a host directory at `/ple` for the table (created on first boot, reused later). Do not bind-mount Python patch files. Do not use the 2026-11-23 image for this seat; it keeps the table in pinned host memory and will not fit.
 
-**Do not run this seat until the model card names a tagged image that includes the offload.** If the person asks for many sessions on one Spark today, give them Seat 1 and say why. For the record, these are the flags we measured with:
+If the person wants the fastest single stream, use Seat 1 instead. These are the flags we measured with (4-sequence low-latency recipe):
 
 ```sh
-IMG=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-23-v0.33.0-omni-dflash2
+IMG=ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-25-v0.33.0-omni-dflash2-ngram-disk
 MODEL=/models/aeon-xs/vllm
 DRAFT=/models/dflash2
+TABLE=/models/aeon-xs-ple
 
 docker run -d --name aeon-xs --ipc host --shm-size 16g --gpus all \
-  -v $MODEL:/model:ro -v $DRAFT:/draft:ro \
+  -v $MODEL:/model:ro -v $DRAFT:/draft:ro -v $TABLE:/ple \
   --entrypoint vllm $IMG serve /model --trust-remote-code --served-model-name aeon-xs \
   --host 0.0.0.0 --port 8000 \
   --engram-config '{"cpu_offload":true}' \
@@ -268,7 +270,7 @@ docker run -d --name aeon-xs --ipc host --shm-size 16g --gpus all \
   --override-generation-config '{"temperature":0.6,"top_p":0.95,"top_k":20,"presence_penalty":0.5,"repetition_penalty":1.0}'
 ```
 
-When this seat is available, three more things will be true. `--gpu-memory-utilization` stays at 0.74. The first minutes after a boot run at about half speed while the table comes off disk. The serve generated for at most 12 sessions at once, whatever `--max-num-seqs` said.
+Do not change: the image tag, the `/ple` mount, `--gpu-memory-utilization` 0.74, `--max-num-batched-tokens` 16384, `--enable-prefix-caching`, the draft-token count of 3, the parsers, or the sampling override. For many sessions, the same command with `--max-num-seqs 32` is the swarm recipe. The first minutes after a boot run at about half speed while the table comes off disk. The serve generated for at most 12 sessions at once, whatever `--max-num-seqs` said.
 
 ## 7. Requests: sampling, thinking, images
 
@@ -316,7 +318,7 @@ Check each of these and give the person the result:
 | Strata's template engine rejects the chat template | the config points at the wrong tokenizer | `"tokenizer"` must be `serve/tokenizer`, whose template has the `{% generation %}` tags removed |
 | AEON vLLM Ultimate dies at startup with a `QSA ring capacity` assertion | draft tokens set to 7 or 8 | set `num_speculative_tokens` to 3 |
 | The serve or the whole machine is killed during warm-up | `--moe-backend flashinfer_b12x`, or `--gpu-memory-utilization` raised | remove the flag, restore the value |
-| One Spark, AEON vLLM Ultimate, out of memory at load | Seat 2 on the public image | not available yet. Use Seat 1. |
+| One Spark, AEON vLLM Ultimate, out of memory at load | Seat 2 on the 2026-11-23 image, or `/ple` not mounted | switch to `2026-11-25-v0.33.0-omni-dflash2-ngram-disk` and mount a host directory at `/ple`. For the fastest single stream, use Seat 1. |
 | Thinking answers run to the token limit repeating themselves | temperature 0 | use the sampling values in section 7 |
 | Tool calls come back malformed | `repetition_penalty` above 1.0 | set it to 1.0 |
 | Sessions past a point wait instead of running | the engine's parallel limit: 8 on Strata, 12 observed on one-Spark AEON vLLM Ultimate | expected. Add Sparks for more parallel sessions. |

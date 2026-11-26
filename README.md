@@ -23,7 +23,7 @@ This repo is the index of serve recipes for [Aeon3.8-Flash-Next-ULTIMATE-UNCENSO
 | Seat | Hardware | Engine | Context | One user | Many users | Guide |
 |---|---|---|---|---|---|---|
 | **1** | 1 DGX Spark | Strata + DFlash2 | 131K, images | **60.6 tok/s** | 73 across 4 | [Strata on one Spark](quickstart/seat-1-strata-one-spark.md) |
-| **2** | 1 DGX Spark | AEON vLLM Ultimate + DFlash2, n-gram table on disk | 131K, images | 38.9 tok/s | **97.5** across 4 | [AEON vLLM Ultimate on one Spark](quickstart/seat-2-aeon-vllm-ultimate-one-spark.md) (needs an image that is not public yet) |
+| **2** | 1 DGX Spark | AEON vLLM Ultimate + DFlash2, n-gram table on disk | 131K, images | 38.9 tok/s | **97.5** across 4 | [AEON vLLM Ultimate on one Spark](quickstart/seat-2-aeon-vllm-ultimate-one-spark.md) |
 | **3** | 2 DGX Sparks, linked | AEON vLLM Ultimate, tensor-parallel | 131K, images | 58 to 65 tok/s | **359** across 16 | [Two Sparks, team server](quickstart/seat-3-two-sparks-team-server.md) |
 | **4** | 2 DGX Sparks, linked | AEON vLLM Ultimate, tensor-parallel | **256K**, images | 51 tok/s | 145 across 4 | [Two Sparks, long thinking](quickstart/seat-4-two-sparks-long-thinking.md) |
 | **5** | 4 DGX Sparks | AEON vLLM Ultimate, two replicas and a balancer | 131K, images | 58 to 65 tok/s | **748** across 32 | [Four Sparks](quickstart/seat-5-four-sparks.md) |
@@ -46,9 +46,8 @@ The same file is in the Hugging Face repo, at [`AGENTS.md`](https://huggingface.
 
 ## Status
 
-- **Seat 2 is measured and not yet reproducible.** It needs the n-gram disk offload, which is not in the public AEON vLLM Ultimate image yet. The guide says so at the top. On one Spark today, use Seat 1.
-- **Seats 1, 3, 4 and 5 run on public software as written.**
-- **Not measured:** one job at tensor-parallel size 4, and any hardware other than DGX Spark.
+- **Seats 1 to 5 run on public software as written.** Seat 2 uses `ghcr.io/aeon-7/aeon-vllm-ultimate:2026-11-25-v0.33.0-omni-dflash2-ngram-disk` (digest `sha256:4749bd067524ce41a4a6d59625f6b6c8531d08a14739bd0d416e935b9fc3a1ad`). Seats 3 to 5 stay on `2026-11-23-v0.33.0-omni-dflash2`.
+- **Not measured on the published sampling:** tensor-parallel DFlash2 (Seat 3 lists greedy DFlash2 only; the default recipe is MTP, which does have sampling numbers). A single job at tensor-parallel size 4. Any hardware other than DGX Spark. A homogeneous 4-Spark pair of identical DFlash2 replicas (Seat 5 was measured with one DFlash2 replica and one MTP replica).
 
 ## Responsibility and license
 
